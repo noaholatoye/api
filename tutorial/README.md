@@ -72,3 +72,73 @@ http --json POST http://127.0.0.1:8000/snippets/ code="print(456)"
 ```
 
 If you add a `--debug` switch to the http requests above, you will be able to see the request type in request headers.
+
+
+## Tutorial 4: Authentication & Permissions
+Currently our API doesn't have any restrictions on who can edit or delete code snippets. We'd like to have some more advanced behavior in order to make sure that:
+
+- Code snippets are always associated with a creator.
+- Only authenticated users may create snippets.
+- Only the creator of a snippet may update or delete it.
+- Unauthenticated requests should have full read-only access.
+
+### Adding information to our model
+Add the following two fields to the `Snippet` model in `models.py`.
+
+```python
+# Imports 
+from pygments.lexers import get_lexer_by_name
+from pygments.formatters.html import HtmlFormatter
+from pygments import highlight
+
+```
+
+```python
+...
+owner = models.ForeignKey('auth.User', related_name='snippets', on_delete=models.CASCADE)
+highlighted = models.TextField()
+
+def save(self, *args, **kwargs):
+    """
+    Use the `pygments` library to create a highlighted HTML
+    representation of the code snippet.
+    """
+    lexer = get_lexer_by_name(self.language)
+    linenos = 'table' if self.linenos else False
+    options = {'title': self.title} if self.title else {}
+    formatter = HtmlFormatter(style=self.style, linenos=linenos,
+                              full=True, **options)
+    self.highlighted = highlight(self.code, lexer, formatter)
+    super().save(*args, **kwargs)
+```
+
+```text
+rm -f db.sqlite3
+rm -r snippets/migrations
+python manage.py makemigrations snippets
+python manage.py migrate
+python manage.py createsuperuser
+```
+
+### Authenticating with the API
+```text
+http POST http://127.0.0.1:8000/snippets/ code="print(123)"
+
+{
+    "detail": "Authentication credentials were not provided."
+}
+```
+
+```text
+http -a admin:password123 POST http://127.0.0.1:8000/snippets/ code="print(789)"
+
+{
+    "id": 1,
+    "owner": "admin",
+    "title": "foo",
+    "code": "print(789)",
+    "linenos": false,
+    "language": "python",
+    "style": "friendly"
+}
+```
